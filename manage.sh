@@ -24,6 +24,7 @@ preflight() {
     psql -h "${DB_HOST:-postgres}" -p "${DB_PORT:-5432}" -U "${DB_USER:-mof}" -d "${DB_NAME:-mof}" -Atqc "SELECT 1"
   ' >"$diagnostic" 2>&1; then
     rm -f "$diagnostic"
+    printf '  PostgreSQL connection verified.\n' >&2
     return 0
   fi
   if grep -qi 'password authentication failed' "$diagnostic"; then

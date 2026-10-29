@@ -1,7 +1,7 @@
 name: ${COMPOSE_PROJECT_NAME:-mofis-shared-db}
 services:
   pgbouncer:
-    image: ghcr.io/mofcloud/pgbouncer:${MOFIS_DEPLOY_VERSION:-0.1.2}
+    image: ghcr.io/mofcloud/pgbouncer:${MOFIS_DEPLOY_VERSION:-0.1.3}
     restart: unless-stopped
     environment:
       DB_HOST: ${DB_HOST:-postgres}
@@ -20,7 +20,7 @@ services:
       timeout: 5s
       retries: 12
   ssh:
-    image: ghcr.io/mofcloud/ssh-tunnel:${MOFIS_DEPLOY_VERSION:-0.1.2}
+    image: ghcr.io/mofcloud/ssh-tunnel:${MOFIS_DEPLOY_VERSION:-0.1.3}
     restart: unless-stopped
     environment:
       SSH_AUTH_MODE: ${SSH_AUTH_MODE:-key}

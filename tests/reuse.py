@@ -12,6 +12,17 @@ with tempfile.TemporaryDirectory(prefix='mofis-reuse-test-') as tmp:
     docker.write_text('#!/bin/sh\ncase "$1 $2" in\n "info ") exit 0;;\n "volume ls") echo mofis-shared-db_pgdata;;\n "ps -a") printf "%s\\n" "$TEST_OLD_DIR";;\n *) exit 1;;\nesac\n')
     docker.chmod(0o755)
     env = {**os.environ,'PATH':str(fake)+':'+os.environ['PATH'],'TEST_OLD_DIR':str(old)}
+    def directory_hint(paths):
+        return subprocess.run(
+            ['sh','-c','. "$1"; old_directory','sh',str(root/'scripts/config-common.sh')],
+            cwd=base,env={**env,'TEST_OLD_DIR':'\n'.join(map(str,paths))},
+            text=True,capture_output=True,check=True).stdout.strip()
+    missing=base/'deleted-deployment'
+    empty=base/'no-credentials'; empty.mkdir()
+    assert directory_hint([missing])==''
+    assert directory_hint([empty])==''
+    assert directory_hint([base])==''  # Never recommend the current directory.
+    assert directory_hint([missing,empty,old])==str(old)
     def setup(name, answers):
         target=base/name; target.mkdir()
         for f in ['configure.sh','VERSION']: shutil.copy(root/f,target/f)
@@ -25,6 +36,8 @@ with tempfile.TemporaryDirectory(prefix='mofis-reuse-test-') as tmp:
     assert 'COMPOSE_PROJECT_NAME=mofis-shared-db' in config
     assert 'PG_DATA_VOLUME=mofis-shared-db_pgdata' in config
     assert password not in result.stdout+result.stderr
+    assert 'connectivity has not been verified' in result.stderr
+    assert 'connection will be verified on start' in result.stderr
     assert not (base/'injected').exists()
     independent,_=setup('new','1\n2\n2\nexample.com\n\n')
     config=(independent/'.env').read_text()
@@ -48,4 +61,4 @@ with tempfile.TemporaryDirectory(prefix='mofis-reuse-test-') as tmp:
     imported,_=setup('modern','1\n1\n\n2\nexample.com\n\n')
     assert (imported/'config/db-password').read_text()=='b'*64
     assert (imported/'config/client-password').read_text()=='c'*64
-print('PASS: legacy/current password import, separate volume, safe parsing and non-destructive repair.')
+print('PASS: valid directory hints, legacy/current password import, separate volume, safe parsing and non-destructive repair.')

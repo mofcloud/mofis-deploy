@@ -10,7 +10,14 @@ old_password() {
 }
 old_directory() {
   docker ps -a --filter "label=com.docker.compose.project=${project:-mofis-shared-db}" \
-    --format '{{.Label "com.docker.compose.project.working_dir"}}' 2>/dev/null | sed -n '1p'
+    --format '{{.Label "com.docker.compose.project.working_dir"}}' 2>/dev/null |
+  while IFS= read -r candidate; do
+    [ -n "$candidate" ] && [ "$candidate" != "$(pwd)" ] && [ -d "$candidate" ] || continue
+    # Container labels can outlive the deployment directory and its secrets.
+    [ -n "$(old_password "$candidate")" ] || continue
+    printf '%s\n' "$candidate"
+    break
+  done
 }
 hidden_password() {
   [ -t 0 ] || { echo 'Please run this command in an interactive terminal.' >&2; return 1; }
@@ -48,7 +55,7 @@ import_old_password() {
     printf '  No saved password found. Use the original database password.\n' >&2
     hidden_password
   else
-    printf '  Original database credentials imported (not displayed).\n' >&2
+    printf '  Saved credentials imported (not displayed); connection will be verified on start.\n' >&2
   fi
   case "$imported_client_password" in *[!0-9a-f]*|'') imported_client_password='';; esac
 }

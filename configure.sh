@@ -40,7 +40,8 @@ if [ "$mode" = full ]; then
  docker info >/dev/null 2>&1 || { echo 'Docker is not available. Start Docker and run setup again.' >&2; exit 1; }
  existing_volumes=$(docker volume ls --format '{{.Name}}' | grep -E '^mofis-(shared-db|db-[0-9a-f]+)_pgdata$' || true)
  if [ -n "$existing_volumes" ]; then
-  section 'Existing MOFIS database found'
+  section 'Existing MOFIS data volume found'
+  printf '  Stored data detected; database connectivity has not been verified yet.\n' >&2
   printf '  1  Use existing database (default)\n     Import its original credentials; keep stored data\n  2  Create an independent database\n     Keep the old database and use a separate data volume\n\n' >&2
   choose 'Database [1]: ' 2
   if [ "$answer" = 1 ]; then
@@ -54,7 +55,7 @@ if [ "$mode" = full ]; then
    fi
    project=${pg_volume%_pgdata}
    import_old_password
-   printf '  The existing MOFIS services will be reused when you start.\n' >&2
+   printf '  Start will verify database access before starting PgBouncer and SSH.\n' >&2
   else
    ssh_port_default=2223
   fi
