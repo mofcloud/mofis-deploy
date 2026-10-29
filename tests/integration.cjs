@@ -20,22 +20,36 @@ async function query(s,sql){const stream=await channel(s);stream.setNoDelay=()=>
 (async()=>{
  try{
   for(const f of ['compose.yaml','compose.postgres.yaml','compose.build.yaml','configure.sh','manage.sh','VERSION']) fs.copyFileSync(path.join(root,f),path.join(temp,f));
-  for(const dir of ['images','postgres']) fs.cpSync(path.join(root,dir),path.join(temp,dir),{recursive:true});
+  for(const dir of ['images','postgres','scripts']) fs.cpSync(path.join(root,dir),path.join(temp,dir),{recursive:true});
   for(const f of ['configure.sh','manage.sh','images/ssh/entrypoint.sh','images/pgbouncer/entrypoint.sh','postgres/10-create-mof.sh']) run('sh',['-n',f]);
   run('ssh-keygen',['-q','-t','ed25519','-N','','-f',path.join(temp,'key')]);
   const publicKey=fs.readFileSync(path.join(temp,'key.pub'),'utf8').trim();
-  run('sh',['configure.sh'],{input:`1\n1\n${publicKey}\n127.0.0.1\n`});
+  run('sh',['configure.sh'],{input:`1\n1\n${publicKey}\n127.0.0.1\n\n`});
   assert.equal(fs.statSync(path.join(temp,'config')).mode & 0o777,0o700);
   assert.equal(fs.statSync(path.join(temp,'connection.txt')).mode & 0o777,0o600);
   assert.notEqual(spawnSync('sh',['configure.sh'],{cwd:temp,input:'\n'}).status,0);
   port=await freePort();
   fs.appendFileSync(path.join(temp,'.env'),`\nSSH_BIND_ADDRESS=127.0.0.1\nSSH_PORT=${port}\n`);
+  fs.appendFileSync(path.join(temp,'.env'),`\nPG_DATA_VOLUME=${project}_pgdata\nCOMPOSE_PROJECT_NAME=${project}\n`);
   const config=JSON.parse(compose('config','--format','json').toString());
   assert(!config.services.postgres.ports);assert(!config.services.pgbouncer.ports);
   const external=JSON.parse(run('docker',['compose','-p',project,'-f','compose.yaml','config','--format','json']).toString());assert(!external.services.postgres);
   console.log('Configuration validation passed.');
   console.log('Building local test images and starting PostgreSQL + pooler + SSH...');
   compose('up','-d','--build','--wait','--wait-timeout','180');
+  run('sh',['manage.sh','start']);
+  compose('exec','-T','postgres','psql','-U','postgres','-d','mof','-c','CREATE TABLE public.repair_probe(value int); INSERT INTO public.repair_probe VALUES (73)');
+  const originalPassword=fs.readFileSync(path.join(temp,'config/db-password'));
+  fs.mkdirSync(path.join(temp,'original/config'),{recursive:true});
+  fs.writeFileSync(path.join(temp,'original/config/db-password'),originalPassword);
+  fs.writeFileSync(path.join(temp,'config/db-password'),'incorrect');
+  const failed=spawnSync('sh',['manage.sh','start'],{cwd:temp,encoding:'utf8',timeout:45000});
+  assert.equal(failed.status,1);
+  assert.match(failed.stderr,/manage.sh repair/);
+  run('sh',['manage.sh','repair'],{input:path.join(temp,'original')+'\n'});
+  assert.deepEqual(fs.readFileSync(path.join(temp,'config/db-password')),originalPassword);
+  assert.equal(compose('exec','-T','postgres','psql','-U','postgres','-d','mof','-Atqc','SELECT value FROM public.repair_probe').toString().trim(),'73');
+  console.log('Fast password diagnosis and repair passed without resetting the database role.');
   let ssh=await connect({privateKey:fs.readFileSync(path.join(temp,'key'))});
   assert.equal((await query(ssh,'SELECT current_user AS name')).rows[0].name,'mof');
   await query(ssh,'CREATE SCHEMA mof; CREATE TABLE mof.persistence(id int); INSERT INTO mof.persistence VALUES (7)');

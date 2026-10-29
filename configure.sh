@@ -1,7 +1,8 @@
 #!/bin/sh
 set -eu
 cd "$(dirname "$0")"
-[ ! -e .env ] && [ ! -e config ] || { echo 'Configuration already exists; not overwriting.' >&2; exit 1; }
+[ ! -e .env ] && [ ! -e config ] || { echo 'Configuration already exists; not overwriting. For a password mismatch, run ./manage.sh repair.' >&2; exit 1; }
+. ./scripts/config-common.sh
 command -v openssl >/dev/null || { echo 'Install openssl first.' >&2; exit 1; }
 # Keep plain text readable in logs, and add restrained color on interactive terminals.
 accent=''; bold=''; muted=''; reset=''
@@ -28,6 +29,37 @@ printf '  %s2%s  Existing PostgreSQL\n' "$accent" "$reset" >&2
 printf '     PgBouncer + SSH, connected to your database\n\n' >&2
 choose 'Deployment [1]: ' 2
 case "$answer" in 1) mode=full;; 2) mode=external;; esac
+project="mofis-db-$(openssl rand -hex 4)"
+pg_volume="${project}_pgdata"
+reuse=no
+ssh_port_default=2222
+backend_password=''
+imported_client_password=''
+if [ "$mode" = full ]; then
+ command -v docker >/dev/null || { echo 'Install Docker and Docker Compose first.' >&2; exit 1; }
+ docker info >/dev/null 2>&1 || { echo 'Docker is not available. Start Docker and run setup again.' >&2; exit 1; }
+ existing_volumes=$(docker volume ls --format '{{.Name}}' | grep -E '^mofis-(shared-db|db-[0-9a-f]+)_pgdata$' || true)
+ if [ -n "$existing_volumes" ]; then
+  section 'Existing MOFIS database found'
+  printf '  1  Use existing database (default)\n     Import its original credentials; keep stored data\n  2  Create an independent database\n     Keep the old database and use a separate data volume\n\n' >&2
+  choose 'Database [1]: ' 2
+  if [ "$answer" = 1 ]; then
+   reuse=yes
+   pg_volume=$(printf '%s\n' "$existing_volumes" | sed -n '1p')
+   if [ "$(printf '%s\n' "$existing_volumes" | wc -l | tr -d ' ')" -gt 1 ]; then
+    printf '  Available MOFIS data volumes:\n%s\n' "$existing_volumes" >&2
+    ask "Data volume [$pg_volume]: "; selected_volume=${answer:-$pg_volume}
+    printf '%s\n' "$existing_volumes" | grep -Fxq "$selected_volume" || { echo 'Choose one of the listed data volumes.' >&2; exit 1; }
+    pg_volume=$selected_volume
+   fi
+   project=${pg_volume%_pgdata}
+   import_old_password
+   printf '  The existing MOFIS services will be reused when you start.\n' >&2
+  else
+   ssh_port_default=2223
+  fi
+ fi
+fi
 section '2 / 3  SSH authentication'
 printf '  %s1%s  Public key  %s(default)%s\n' "$accent" "$reset" "$muted" "$reset" >&2
 printf '     Use a private key or SSH Agent in MOFIS\n' >&2
@@ -44,6 +76,9 @@ fi
 section '3 / 3  Connection details'
 ask 'Server address to enter in MOFIS (IP or hostname): '; server=$answer
 case "$server" in ''|*[!A-Za-z0-9.:-]*) echo 'Invalid server address'; exit 1;; esac
+ask "SSH port [$ssh_port_default]: "; ssh_port=${answer:-$ssh_port_default}
+case "$ssh_port" in ''|*[!0-9]*) echo 'Invalid SSH port'; exit 1;; esac
+[ "$ssh_port" -ge 1 ] && [ "$ssh_port" -le 65535 ] || exit 1
 host=postgres; port=5432; db=mof; user=mof; tls=disable; ca=''
 if [ "$mode" = external ]; then
  ask 'Existing PostgreSQL hostname: '; host=$answer
@@ -64,7 +99,7 @@ if [ "$mode" = external ]; then
  IFS= read -r backend_password || exit 1
  stty "$saved_tty"; trap - EXIT HUP INT TERM; printf '\n' >&2
  [ -n "$backend_password" ] || exit 1
-else
+elif [ "$reuse" = no ]; then
  backend_password=$(openssl rand -hex 32)
 fi
 umask 077
@@ -75,7 +110,11 @@ if [ "$auth" = key ]; then
  ssh-keygen -lf config/authorized_keys >/dev/null || { rm -rf config; exit 1; }
 fi
 printf '%s' "$backend_password" > config/db-password
-openssl rand -hex 32 | tr -d '\n' > config/client-password
+if [ -n "$imported_client_password" ]; then
+ printf '%s' "$imported_client_password" > config/client-password
+else
+ openssl rand -hex 32 | tr -d '\n' > config/client-password
+fi
 openssl rand -hex 24 | tr -d '\n' > config/ssh-password
 openssl rand -hex 32 | tr -d '\n' > config/postgres-password
 # PostgreSQL runs as a non-root container user. The host directory stays 0700.
@@ -84,19 +123,20 @@ chmod 644 config/db-password config/postgres-password
 {
  printf 'MOFIS_DEPLOY_VERSION=%s\n' "$(cat VERSION)"
  printf 'DEPLOY_MODE=%s\nSSH_AUTH_MODE=%s\n' "$mode" "$auth"
- printf 'SSH_BIND_ADDRESS=0.0.0.0\nSSH_PORT=2222\n'
+ printf 'COMPOSE_PROJECT_NAME=%s\nPG_DATA_VOLUME=%s\n' "$project" "$pg_volume"
+ printf 'SSH_BIND_ADDRESS=0.0.0.0\nSSH_PORT=%s\n' "$ssh_port"
  printf 'DB_HOST=%s\nDB_PORT=%s\nDB_NAME=%s\nDB_USER=%s\nDB_TLS_MODE=%s\n' "$host" "$port" "$db" "$user" "$tls"
 } > .env
 {
  printf 'MOFIS: Add team shared database / SSH tunnel\n'
  printf 'PostgreSQL URI: postgresql://mof:%s@pgbouncer:6432/mof?sslmode=disable\n' "$(cat config/client-password)"
- printf 'SSH host: %s\nSSH port: 2222\nSSH user: tunnel\nAuthentication: %s\n' "$server" "$auth"
+ printf 'SSH host: %s\nSSH port: %s\nSSH user: tunnel\nAuthentication: %s\n' "$server" "$ssh_port" "$auth"
  if [ "$auth" = password ]; then printf 'SSH password: %s\n' "$(cat config/ssh-password)"; else printf 'Select your matching private key or SSH Agent in MOFIS.\n'; fi
  printf 'Verify SSH fingerprint with: ./manage.sh fingerprint\n'
 } > connection.txt
 section 'Configuration ready'
 case "$mode" in full) deployment='PostgreSQL + PgBouncer + SSH';; external) deployment='PgBouncer + SSH (existing database)';; esac
-printf '  Deployment      %s\n  Authentication  %s\n  SSH endpoint    %s:2222\n' "$deployment" "$auth" "$server" >&2
+printf '  Deployment      %s\n  Authentication  %s\n  SSH endpoint    %s:%s\n' "$deployment" "$auth" "$server" "$ssh_port" >&2
 printf '\n  %sNext steps%s\n' "$bold" "$reset" >&2
 printf '  1. Start services    ./manage.sh start\n  2. View connection   cat connection.txt\n  3. Check status      ./manage.sh status\n\n' >&2
 printf '  Keep connection.txt private; it contains your credentials.\n\n' >&2

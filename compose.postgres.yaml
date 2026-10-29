@@ -25,3 +25,4 @@ secrets:
     file: ./config/postgres-password
 volumes:
   pgdata:
+    name: ${PG_DATA_VOLUME:-mofis-shared-db_pgdata}

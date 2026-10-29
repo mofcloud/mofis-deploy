@@ -5,6 +5,7 @@ with tempfile.TemporaryDirectory(prefix='mofis-config-test-') as folder:
     target = pathlib.Path(folder)
     for file in ['configure.sh', 'VERSION']:
         shutil.copy(root / file, target / file)
+    shutil.copytree(root / 'scripts', target / 'scripts')
     (target / 'ca.crt').write_text('fixture-public-certificate')
     master, slave = pty.openpty()
     process = subprocess.Popen(['sh', 'configure.sh'], cwd=target, stdin=slave, stdout=slave, stderr=slave)
@@ -13,6 +14,7 @@ with tempfile.TemporaryDirectory(prefix='mofis-config-test-') as folder:
         (b'Deployment [1]:', '2\n'),
         (b'Authentication [1]:', '2\n'),
         (b'IP or hostname):', 'example.com\n'),
+        (b'SSH port [2222]:', '\n'),
         (b'PostgreSQL hostname:', 'database.example.com\n'),
         (b'port [5432]:', '\n'),
         (b'name [mof]:', 'team_db\n'),

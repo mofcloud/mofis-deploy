@@ -40,6 +40,20 @@ Create a dedicated database and owner role before setup. The role needs schema/t
 
 TLS certificate verification is the default for an external database; supply its CA certificate. Encryption-only and private-network plaintext are explicit alternatives. SSH does not encrypt the hop from PgBouncer to the external database. Newline passwords are unsupported; database/user names must be simple identifiers.
 
+## Existing MOFIS deployment
+
+Full setup detects local MOFIS data volumes. Choose reuse (default) and provide the directory that originally initialized the database. The script imports the backend password from legacy `.env` or current secret files without executing the old configuration. If unavailable, it prompts for the original password with echo disabled. Reusing a project takes over its containers while retaining the database volume and role passwords.
+
+Choosing an independent database creates a unique project and volume, retaining the old deployment. The suggested SSH port is 2223; the wizard allows another port. Arbitrary PostgreSQL installations are not automatically taken over.
+
+Startup checks backend credentials before waiting for pooler health. To repair a mismatch in an existing full-mode configuration:
+
+```sh
+./manage.sh repair
+```
+
+Provide the original deployment directory or enter the original password. Repair updates the local backend credential and restarts connection services, leaving database contents, PostgreSQL role passwords and MOFIS client credentials unchanged. It never silently resets a database password.
+
 ## Persistence and upgrades
 
 Named Docker volumes retain PostgreSQL data and SSH host identity across restarts. Back up both the database and configuration before upgrades. PostgreSQL initialization credentials apply only when creating a new data volume; editing a secret does not rotate an existing database role's password.
