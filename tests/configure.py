@@ -10,14 +10,14 @@ with tempfile.TemporaryDirectory(prefix='mofis-config-test-') as folder:
     process = subprocess.Popen(['sh', 'configure.sh'], cwd=target, stdin=slave, stdout=slave, stderr=slave)
     os.close(slave)
     steps = [
-        (b'Existing PostgreSQL:', '2\n'),
-        (b'Generated password:', '2\n'),
+        (b'Deployment [1]:', '2\n'),
+        (b'Authentication [1]:', '2\n'),
         (b'IP or hostname):', 'example.com\n'),
         (b'PostgreSQL hostname:', 'database.example.com\n'),
         (b'port [5432]:', '\n'),
         (b'name [mof]:', 'team_db\n'),
         (b'username [mof]:', 'team_owner\n'),
-        (b'private network only):', '1\n'),
+        (b'Database TLS [1]:', '1\n'),
         (b'file path:', str(target / 'ca.crt') + '\n'),
         (b'(hidden):', 'fixture!$\'"\\password\n'),
     ]

@@ -3,17 +3,45 @@ set -eu
 cd "$(dirname "$0")"
 [ ! -e .env ] && [ ! -e config ] || { echo 'Configuration already exists; not overwriting.' >&2; exit 1; }
 command -v openssl >/dev/null || { echo 'Install openssl first.' >&2; exit 1; }
-ask() { printf '%s' "$1" >&2; IFS= read -r answer || exit 1; }
-ask 'Deployment: 1) New PostgreSQL (default)  2) Existing PostgreSQL: '
-case "$answer" in ''|1) mode=full;; 2) mode=external;; *) echo 'Choose 1 or 2'; exit 1;; esac
-ask 'SSH authentication: 1) Public key (default)  2) Generated password: '
-case "$answer" in ''|1) auth=key;; 2) auth=password;; *) echo 'Choose 1 or 2'; exit 1;; esac
+# Keep plain text readable in logs, and add restrained color on interactive terminals.
+accent=''; bold=''; muted=''; reset=''
+if [ -t 2 ] && [ "${TERM:-dumb}" != dumb ] && [ -z "${NO_COLOR:-}" ]; then
+  accent=$(printf '\033[36m'); bold=$(printf '\033[1m')
+  muted=$(printf '\033[2m'); reset=$(printf '\033[0m')
+fi
+section() { printf '\n  %s%s%s\n' "$bold" "$1" "$reset" >&2; }
+ask() { printf '  %s›%s %s' "$accent" "$reset" "$1" >&2; IFS= read -r answer || exit 1; }
+choose() {
+  while :; do
+    ask "$1"
+    answer=${answer:-1}
+    case "$answer" in 1|2) return;; 3) [ "$2" = 3 ] && return;; esac
+    printf '  Please enter a number from 1 to %s.\n' "$2" >&2
+  done
+}
+printf '\n  %sMOFIS%s  %sShared database setup%s\n' "$bold" "$reset" "$muted" "$reset" >&2
+printf '  Choose your setup. Press Enter to use the default.\n' >&2
+section '1 / 3  Deployment'
+printf '  %s1%s  New PostgreSQL  %s(default)%s\n' "$accent" "$reset" "$muted" "$reset" >&2
+printf '     PostgreSQL + PgBouncer + SSH\n' >&2
+printf '  %s2%s  Existing PostgreSQL\n' "$accent" "$reset" >&2
+printf '     PgBouncer + SSH, connected to your database\n\n' >&2
+choose 'Deployment [1]: ' 2
+case "$answer" in 1) mode=full;; 2) mode=external;; esac
+section '2 / 3  SSH authentication'
+printf '  %s1%s  Public key  %s(default)%s\n' "$accent" "$reset" "$muted" "$reset" >&2
+printf '     Use a private key or SSH Agent in MOFIS\n' >&2
+printf '  %s2%s  Generated password\n' "$accent" "$reset" >&2
+printf '     A random password will be saved in connection.txt\n\n' >&2
+choose 'Authentication [1]: ' 2
+case "$answer" in 1) auth=key;; 2) auth=password;; esac
 key=''
 if [ "$auth" = key ]; then
   ask 'Paste your computer OpenSSH PUBLIC key (one line): '; key=$answer
   printf '%s\n' "$key" | grep -Eq '^(ssh-ed25519|ssh-rsa|ecdsa-sha2-[^ ]+) [A-Za-z0-9+/=]+( .*)?$' || { echo 'Expected a public key, never a private key.'; exit 1; }
   command -v ssh-keygen >/dev/null || { echo 'Install openssh-clients first.'; exit 1; }
 fi
+section '3 / 3  Connection details'
 ask 'Server address to enter in MOFIS (IP or hostname): '; server=$answer
 case "$server" in ''|*[!A-Za-z0-9.:-]*) echo 'Invalid server address'; exit 1;; esac
 host=postgres; port=5432; db=mof; user=mof; tls=disable; ca=''
@@ -26,9 +54,11 @@ if [ "$mode" = external ]; then
  [ -n "$host" ] || exit 1
  case "$port" in ''|*[!0-9]*) exit 1;; esac
  [ "$port" -ge 1 ] && [ "$port" -le 65535 ] || exit 1
- ask 'Database TLS: 1) Verify certificate (default)  2) Encrypt only  3) Disable (private network only): '
+ section 'Database encryption'
+ printf '  1  Verify certificate (default)\n  2  Encrypt only\n  3  Disable (private network only)\n\n' >&2
+ choose 'Database TLS [1]: ' 3
  case "$answer" in ''|1) tls=verify-full; ask 'Database CA certificate file path: '; ca=$answer; [ -s "$ca" ] || exit 1;; 2) tls=require;; 3) tls=disable;; *) exit 1;; esac
- printf 'Database password (hidden): ' >&2
+ printf '  › Database password (hidden): ' >&2
  saved_tty=$(stty -g); trap 'stty "$saved_tty"' EXIT HUP INT TERM
  stty -echo
  IFS= read -r backend_password || exit 1
@@ -64,4 +94,9 @@ chmod 644 config/db-password config/postgres-password
  if [ "$auth" = password ]; then printf 'SSH password: %s\n' "$(cat config/ssh-password)"; else printf 'Select your matching private key or SSH Agent in MOFIS.\n'; fi
  printf 'Verify SSH fingerprint with: ./manage.sh fingerprint\n'
 } > connection.txt
-echo 'Configured. Run ./manage.sh start; then open connection.txt locally for MOFIS settings.'
+section 'Configuration ready'
+case "$mode" in full) deployment='PostgreSQL + PgBouncer + SSH';; external) deployment='PgBouncer + SSH (existing database)';; esac
+printf '  Deployment      %s\n  Authentication  %s\n  SSH endpoint    %s:2222\n' "$deployment" "$auth" "$server" >&2
+printf '\n  %sNext steps%s\n' "$bold" "$reset" >&2
+printf '  1. Start services    ./manage.sh start\n  2. View connection   cat connection.txt\n  3. Check status      ./manage.sh status\n\n' >&2
+printf '  Keep connection.txt private; it contains your credentials.\n\n' >&2
