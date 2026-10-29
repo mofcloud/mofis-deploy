@@ -1,0 +1,5 @@
+/.env
+/config/
+/connection.txt
+/dist/
+/node_modules/

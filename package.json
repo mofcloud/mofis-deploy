@@ -1,0 +1,11 @@
+{
+  "name": "mofis-deploy-tests",
+  "private": true,
+  "scripts": {
+    "test": "python3 tests/configure.py && node tests/integration.cjs"
+  },
+  "devDependencies": {
+    "pg": "^8.23.1",
+    "ssh2": "^1.17.0"
+  }
+}

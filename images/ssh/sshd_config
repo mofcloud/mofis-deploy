@@ -1,0 +1,22 @@
+Port 2222
+ListenAddress 0.0.0.0
+HostKey /etc/ssh/host_keys/ssh_host_ed25519_key
+PidFile /run/sshd.pid
+PermitRootLogin no
+AllowUsers tunnel
+PubkeyAuthentication yes
+PasswordAuthentication no
+KbdInteractiveAuthentication no
+PermitEmptyPasswords no
+AuthorizedKeysFile .ssh/authorized_keys
+StrictModes yes
+AllowTcpForwarding local
+PermitOpen pgbouncer:6432
+GatewayPorts no
+AllowAgentForwarding no
+X11Forwarding no
+PermitTunnel no
+PermitTTY no
+# No interactive shells, commands or SFTP; direct-tcpip channels remain available.
+MaxSessions 0
+LogLevel VERBOSE

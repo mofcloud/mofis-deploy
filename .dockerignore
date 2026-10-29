@@ -1,0 +1,6 @@
+.git
+config
+.env
+connection.txt
+dist
+node_modules

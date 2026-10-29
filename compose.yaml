@@ -1,0 +1,54 @@
+name: mofis-shared-db
+services:
+  pgbouncer:
+    image: ghcr.io/mofcloud/pgbouncer:${MOFIS_DEPLOY_VERSION:-0.1.0}
+    restart: unless-stopped
+    environment:
+      DB_HOST: ${DB_HOST:-postgres}
+      DB_PORT: ${DB_PORT:-5432}
+      DB_NAME: ${DB_NAME:-mof}
+      DB_USER: ${DB_USER:-mof}
+      DB_TLS_MODE: ${DB_TLS_MODE:-disable}
+    secrets: [client_password, db_password]
+    volumes:
+      - ./config:/config:ro
+    tmpfs: [/run/pgbouncer]
+    networks: [database, tunnel]
+    healthcheck:
+      test: [CMD-SHELL, 'PGPASSWORD="$$(cat /run/secrets/client_password)" psql -h 127.0.0.1 -p 6432 -U mof -d mof -Atqc "SELECT 1" | grep -qx 1']
+      interval: 10s
+      timeout: 5s
+      retries: 12
+  ssh:
+    image: ghcr.io/mofcloud/ssh-tunnel:${MOFIS_DEPLOY_VERSION:-0.1.0}
+    restart: unless-stopped
+    environment:
+      SSH_AUTH_MODE: ${SSH_AUTH_MODE:-key}
+    depends_on:
+      pgbouncer:
+        condition: service_healthy
+    ports:
+      - '${SSH_BIND_ADDRESS:-0.0.0.0}:${SSH_PORT:-2222}:2222'
+    secrets: [ssh_password]
+    volumes:
+      - ./config:/config:ro
+      - ssh_host_keys:/etc/ssh/host_keys
+    networks: [tunnel]
+    healthcheck:
+      test: [CMD-SHELL, '/usr/sbin/sshd -t && kill -0 1']
+      interval: 10s
+      timeout: 3s
+      retries: 10
+secrets:
+  client_password:
+    file: ./config/client-password
+  db_password:
+    file: ./config/db-password
+  ssh_password:
+    file: ./config/ssh-password
+volumes:
+  ssh_host_keys:
+networks:
+  database:
+    internal: true
+  tunnel:

@@ -1,0 +1,6 @@
+# Maintainer tests only. Customers use published images.
+services:
+  pgbouncer:
+    build: ./images/pgbouncer
+  ssh:
+    build: ./images/ssh
