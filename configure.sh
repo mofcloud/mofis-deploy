@@ -35,6 +35,7 @@ reuse=no
 ssh_port_default=2222
 backend_password=''
 imported_client_password=''
+reset_password=no
 if [ "$mode" = full ]; then
  command -v docker >/dev/null || { echo 'Install Docker and Docker Compose first.' >&2; exit 1; }
  docker info >/dev/null 2>&1 || { echo 'Docker is not available. Start Docker and run setup again.' >&2; exit 1; }
@@ -42,7 +43,7 @@ if [ "$mode" = full ]; then
  if [ -n "$existing_volumes" ]; then
   section 'Existing MOFIS data volume found'
   printf '  Stored data detected; database connectivity has not been verified yet.\n' >&2
-  printf '  1  Use existing database (default)\n     Import its original credentials; keep stored data\n  2  Create an independent database\n     Keep the old database and use a separate data volume\n\n' >&2
+  printf '  1  Continue using the existing database (default)\n     Load saved credentials automatically; keep stored data\n  2  Create an independent database\n     Keep the old database and use a separate data volume\n\n' >&2
   choose 'Database [1]: ' 2
   if [ "$answer" = 1 ]; then
    reuse=yes
@@ -54,7 +55,7 @@ if [ "$mode" = full ]; then
     pg_volume=$selected_volume
    fi
    project=${pg_volume%_pgdata}
-   import_old_password
+   reuse_credentials
    printf '  Start will verify database access before starting PgBouncer and SSH.\n' >&2
   else
    ssh_port_default=2223
@@ -111,6 +112,7 @@ if [ "$auth" = key ]; then
  ssh-keygen -lf config/authorized_keys >/dev/null || { rm -rf config; exit 1; }
 fi
 printf '%s' "$backend_password" > config/db-password
+[ "$reset_password" = no ] || touch config/reset-db-password
 if [ -n "$imported_client_password" ]; then
  printf '%s' "$imported_client_password" > config/client-password
 else

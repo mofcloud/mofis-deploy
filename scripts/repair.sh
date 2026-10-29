@@ -6,9 +6,17 @@ cd "$(dirname "$0")/.."
 [ -f config/db-password ] || { echo 'Run configure.sh first.' >&2; exit 1; }
 project=$(env_value . COMPOSE_PROJECT_NAME)
 project=${project:-mofis-shared-db}
-printf '\n  Repair database connection\n  Import the original password; database contents and role passwords are not changed.\n\n'
-import_old_password
+printf '\n  Repair database connection\n  1  Import the original password (default)\n  2  Forgot password: generate a new password; preserve stored data\n     Other clients using the old password must update their connection.\n\n'
+while :; do
+  printf '  › Repair [1]: '
+  IFS= read -r repair_choice
+  case "${repair_choice:-1}" in
+    1) import_old_password; break;;
+    2) backend_password=$(openssl rand -hex 32); touch config/reset-db-password; break;;
+    *) printf '  Please enter 1 or 2.\n';;
+  esac
+done
 # Keep the inode: Compose secrets may already be bind-mounted in running containers.
 printf '%s' "$backend_password" > config/db-password
 chmod 644 config/db-password
-printf '\n  Saved the original backend password. MOFIS connection details are unchanged.\n'
+printf '\n  Saved backend credentials. MOFIS connection details are unchanged.\n'

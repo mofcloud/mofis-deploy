@@ -42,8 +42,7 @@ TLS certificate verification is the default for an external database; supply its
 
 ## Existing MOFIS deployment
 
-Full setup detects local MOFIS data volumes. Choose reuse (default) and provide the directory that originally initialized the database. The script imports the backend password from legacy `.env` or current secret files without executing the old configuration. If unavailable, it prompts for the original password with echo disabled. Reusing a project takes over its containers while retaining the database volume and role passwords.
-
+Full setup detects local MOFIS data volumes. Choose continue (default). Saved credentials are loaded automatically when available; otherwise choose to generate a new password or import the original password. Generating a password resets only the managed PostgreSQL `mof` role on start, preserving database contents. Other clients using the old database password must update their connections. Local PostgreSQL administrator access is required; if unavailable, recovery stops without deleting data. Reusing a project takes over its containers while retaining the data volume.
 Choosing an independent database creates a unique project and volume, retaining the old deployment. The suggested SSH port is 2223; the wizard allows another port. Arbitrary PostgreSQL installations are not automatically taken over.
 
 Startup checks backend credentials before waiting for pooler health. To repair a mismatch in an existing full-mode configuration:
@@ -52,7 +51,7 @@ Startup checks backend credentials before waiting for pooler health. To repair a
 ./manage.sh repair
 ```
 
-Provide the original deployment directory or enter the original password. Repair updates the local backend credential and restarts connection services, leaving database contents, PostgreSQL role passwords and MOFIS client credentials unchanged. It never silently resets a database password.
+Choose import (default) to keep the database password, or forgotten-password recovery to generate a new one. Both preserve data and MOFIS client credentials. Recovery is available only for our managed PostgreSQL, not external databases.
 
 ## Persistence and upgrades
 

@@ -29,7 +29,7 @@ with tempfile.TemporaryDirectory(prefix='mofis-reuse-test-') as tmp:
         shutil.copytree(root/'scripts',target/'scripts')
         result=subprocess.run(['sh','configure.sh'],cwd=target,env=env,input=answers,text=True,capture_output=True,check=True)
         return target,result
-    reused,result=setup('reuse',f'1\n1\n\n2\nexample.com\n\n')
+    reused,result=setup('reuse',f'1\n1\n2\nexample.com\n\n')
     assert (reused/'config/db-password').read_text()==password
     assert (reused/'config/client-password').read_text()==password
     config=(reused/'.env').read_text()
@@ -37,7 +37,7 @@ with tempfile.TemporaryDirectory(prefix='mofis-reuse-test-') as tmp:
     assert 'PG_DATA_VOLUME=mofis-shared-db_pgdata' in config
     assert password not in result.stdout+result.stderr
     assert 'connectivity has not been verified' in result.stderr
-    assert 'connection will be verified on start' in result.stderr
+    assert 'loaded automatically' in result.stderr
     assert not (base/'injected').exists()
     independent,_=setup('new','1\n2\n2\nexample.com\n\n')
     config=(independent/'.env').read_text()
@@ -49,16 +49,23 @@ with tempfile.TemporaryDirectory(prefix='mofis-reuse-test-') as tmp:
     (reused/'config/db-password').write_text('incorrect')
     inode=(reused/'config/db-password').stat().st_ino
     client=(reused/'config/client-password').read_text()
-    result=subprocess.run(['sh','scripts/repair.sh'],cwd=reused,env=env,input='\n',text=True,capture_output=True,check=True)
+    result=subprocess.run(['sh','scripts/repair.sh'],cwd=reused,env=env,input='1\n\n',text=True,capture_output=True,check=True)
     assert (reused/'config/db-password').read_text()==password
     assert (reused/'config/db-password').stat().st_ino==inode
     assert (reused/'config/client-password').read_text()==client
     assert password not in result.stdout+result.stderr
+    # Missing old directories offer data-preserving recovery without an old password.
+    env['TEST_OLD_DIR']=str(missing)
+    recovered,result=setup('recover','1\n1\n\n2\nexample.com\n\n')
+    assert (recovered/'config/reset-db-password').exists()
+    assert len((recovered/'config/db-password').read_text())==64
+    assert 'Other clients' in result.stderr
+    env['TEST_OLD_DIR']=str(old)
     # New-format credential imports work too.
     (old/'config').mkdir()
     (old/'config/db-password').write_text('b'*64)
     (old/'config/client-password').write_text('c'*64)
-    imported,_=setup('modern','1\n1\n\n2\nexample.com\n\n')
+    imported,_=setup('modern','1\n1\n2\nexample.com\n\n')
     assert (imported/'config/db-password').read_text()=='b'*64
     assert (imported/'config/client-password').read_text()=='c'*64
 print('PASS: valid directory hints, legacy/current password import, separate volume, safe parsing and non-destructive repair.')

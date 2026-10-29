@@ -59,3 +59,31 @@ import_old_password() {
   fi
   case "$imported_client_password" in *[!0-9a-f]*|'') imported_client_password='';; esac
 }
+
+reuse_credentials() {
+  reset_password=no
+  hint=$(old_directory)
+  if [ -n "$hint" ]; then
+    backend_password=$(old_password "$hint")
+    imported_client_password=''
+    if [ -s "$hint/config/client-password" ]; then
+      imported_client_password=$(cat "$hint/config/client-password")
+    else
+      imported_client_password=$backend_password
+    fi
+    case "$imported_client_password" in *[!0-9a-f]*|'') imported_client_password='';; esac
+    printf '  Saved credentials found and loaded automatically. Start will verify the connection.\n' >&2
+    return
+  fi
+  printf '  No saved credentials found. Database contents will be preserved.\n' >&2
+  printf '  1  Generate a new password (default)\n     Other clients using the old database password must reconnect with the new one.\n  2  Enter/import the original password\n\n' >&2
+  while :; do
+    printf '  › Password recovery [1]: ' >&2
+    IFS= read -r recovery || return 1
+    case "${recovery:-1}" in
+      1) backend_password=$(openssl rand -hex 32); imported_client_password=''; reset_password=yes; return;;
+      2) import_old_password; return;;
+      *) printf '  Please enter 1 or 2.\n' >&2;;
+    esac
+  done
+}

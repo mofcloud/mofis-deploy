@@ -46,10 +46,18 @@ async function query(s,sql){const stream=await channel(s);stream.setNoDelay=()=>
   const failed=spawnSync('sh',['manage.sh','start'],{cwd:temp,encoding:'utf8',timeout:45000});
   assert.equal(failed.status,1);
   assert.match(failed.stderr,/manage.sh repair/);
-  run('sh',['manage.sh','repair'],{input:path.join(temp,'original')+'\n'});
+  run('sh',['manage.sh','repair'],{input:'1\n'+path.join(temp,'original')+'\n'});
   assert.deepEqual(fs.readFileSync(path.join(temp,'config/db-password')),originalPassword);
   assert.equal(compose('exec','-T','postgres','psql','-U','postgres','-d','mof','-Atqc','SELECT value FROM public.repair_probe').toString().trim(),'73');
   console.log('Fast password diagnosis and repair passed without resetting the database role.');
+  // Forgotten password recovery must rotate only the backend password, retaining data and client credentials.
+  const clientBeforeRecovery=fs.readFileSync(path.join(temp,'config/client-password'));
+  run('sh',['manage.sh','repair'],{input:'2\n'});
+  assert.notDeepEqual(fs.readFileSync(path.join(temp,'config/db-password')),originalPassword);
+  assert.deepEqual(fs.readFileSync(path.join(temp,'config/client-password')),clientBeforeRecovery);
+  assert(!fs.existsSync(path.join(temp,'config/reset-db-password')));
+  assert.equal(compose('exec','-T','postgres','psql','-U','postgres','-d','mof','-Atqc','SELECT value FROM public.repair_probe').toString().trim(),'73');
+  console.log('Forgotten password recovery passed with stored data and MOFIS credentials preserved.');
   let ssh=await connect({privateKey:fs.readFileSync(path.join(temp,'key'))});
   assert.equal((await query(ssh,'SELECT current_user AS name')).rows[0].name,'mof');
   await query(ssh,'CREATE SCHEMA mof; CREATE TABLE mof.persistence(id int); INSERT INTO mof.persistence VALUES (7)');

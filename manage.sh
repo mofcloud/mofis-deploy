@@ -14,6 +14,21 @@ preflight() {
   # Test the real backend credentials before waiting for the pooler health check.
   if [ "$mode" = full ]; then
     compose up -d --wait --wait-timeout 60 postgres || return 1
+    if [ -f config/reset-db-password ]; then
+      printf '  Recovering database access; stored data is preserved.\n' >&2
+      # Only our managed PG supports this recovery. Use its local admin socket;
+      # never change authentication rules or expose a password in process arguments.
+      recovery_password=$(cat config/db-password)
+      case "$recovery_password" in *[!0-9a-f]*|'') echo 'Invalid recovery password.' >&2; return 1;; esac
+      if ! printf "\\\\set recovery_password '%s'\nSELECT format('ALTER ROLE mof PASSWORD %%L', :'recovery_password') \\\\gexec\n" "$recovery_password" |
+        compose exec -T -u postgres postgres psql -X -U postgres -d postgres -v ON_ERROR_STOP=1 >/dev/null; then
+        printf '  Recovery failed. No data was deleted; check local PostgreSQL administrator access.\n' >&2
+        return 1
+      fi
+      unset recovery_password
+      rm -f config/reset-db-password
+      printf '  Database password updated. Other clients using the old password must update their connection.\n' >&2
+    fi
   fi
   diagnostic=$(mktemp)
   if compose run --rm --no-deps --entrypoint sh pgbouncer -c '
