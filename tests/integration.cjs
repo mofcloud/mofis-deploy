@@ -19,7 +19,7 @@ function channel(s,host='pgbouncer',port=6432){return new Promise((resolve,rejec
 async function query(s,sql){const stream=await channel(s);stream.setNoDelay=()=>{};stream.setKeepAlive=()=>{};stream.connect=()=>process.nextTick(()=>stream.emit('connect'));const db=new PG({stream,user:'mof',password:fs.readFileSync(path.join(temp,'config/client-password'),'utf8'),database:'mof',connectionTimeoutMillis:8000,query_timeout:10000});try{await db.connect();return await db.query(sql);}finally{await db.end();}}
 (async()=>{
  try{
-  for(const f of ['compose.yaml','compose.postgres.yaml','compose.build.yaml','configure.sh','manage.sh','VERSION']) fs.copyFileSync(path.join(root,f),path.join(temp,f));
+  for(const f of ['compose.yaml','compose.postgres.yaml','compose.build.yaml','configure.sh','manage.sh','VERSION','README.md','README.zh-CN.md']) fs.copyFileSync(path.join(root,f),path.join(temp,f));
   for(const dir of ['images','postgres','scripts']) fs.cpSync(path.join(root,dir),path.join(temp,dir),{recursive:true});
   for(const f of ['configure.sh','manage.sh','images/ssh/entrypoint.sh','images/pgbouncer/entrypoint.sh','postgres/10-create-mof.sh']) run('sh',['-n',f]);
   run('ssh-keygen',['-q','-t','ed25519','-N','','-f',path.join(temp,'key')]);
@@ -58,6 +58,16 @@ async function query(s,sql){const stream=await channel(s);stream.setNoDelay=()=>
   assert(!fs.existsSync(path.join(temp,'config/reset-db-password')));
   assert.equal(compose('exec','-T','postgres','psql','-U','postgres','-d','mof','-Atqc','SELECT value FROM public.repair_probe').toString().trim(),'73');
   console.log('Forgotten password recovery passed with stored data and MOFIS credentials preserved.');
+  // Upgrade the running deployment through the offline CLI, preserving its volume and SSH identity.
+  const releaseVersion=fs.readFileSync(path.join(temp,'VERSION'),'utf8').trim();
+  const fingerprintBefore=compose('exec','-T','ssh','ssh-keygen','-lf','/etc/ssh/host_keys/ssh_host_ed25519_key.pub').toString();
+  run('sh',['scripts/package.sh']);
+  fs.writeFileSync(path.join(temp,'VERSION'),'0.0.0\n');
+  run('sh',['manage.sh','upgrade','--archive',`dist/mofis-deploy-${releaseVersion}.zip`,'--checksum','dist/SHA256SUMS']);
+  assert.equal(fs.readFileSync(path.join(temp,'VERSION'),'utf8').trim(),releaseVersion);
+  assert.equal(compose('exec','-T','postgres','psql','-U','postgres','-d','mof','-Atqc','SELECT value FROM public.repair_probe').toString().trim(),'73');
+  assert.equal(compose('exec','-T','ssh','ssh-keygen','-lf','/etc/ssh/host_keys/ssh_host_ed25519_key.pub').toString(),fingerprintBefore);
+  console.log('Offline in-place upgrade passed with data and SSH fingerprint preserved.');
   let ssh=await connect({privateKey:fs.readFileSync(path.join(temp,'key'))});
   assert.equal((await query(ssh,'SELECT current_user AS name')).rows[0].name,'mof');
   await query(ssh,'CREATE SCHEMA mof; CREATE TABLE mof.persistence(id int); INSERT INTO mof.persistence VALUES (7)');

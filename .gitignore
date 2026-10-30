@@ -3,3 +3,6 @@
 /connection.txt
 /dist/
 /node_modules/
+/.upgrade-backups/
+/.upgrade-lock/
+__pycache__/

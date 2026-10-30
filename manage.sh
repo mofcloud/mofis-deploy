@@ -3,8 +3,8 @@ set -eu
 cd "$(dirname "$0")"
 [ -f .env ] || { echo 'Run ./configure.sh first'; exit 1; }
 mode=$(sed -n 's/^DEPLOY_MODE=//p' .env)
-set -- "${1:-help}"
-command=$1
+command=${1:-help}
+[ "$#" -eq 0 ] || shift
 compose() {
  if [ "$mode" = full ]; then docker compose -f compose.yaml -f compose.postgres.yaml "$@"
  elif [ "$mode" = external ]; then docker compose -f compose.yaml "$@"
@@ -85,6 +85,9 @@ start_services() {
 }
 start() { prepare_images && preflight && start_services; }
 case "$command" in
+ upgrade)
+   command -v python3 >/dev/null || { echo 'Upgrade requires Python 3. Install python3 and try again.' >&2; exit 1; }
+   exec python3 ./scripts/upgrade.py --directory "$PWD" "$@";;
  start) start;;
  repair) ./scripts/repair.sh && prepare_images && preflight && compose up -d --no-deps --force-recreate pgbouncer && start_services;;
  stop) compose stop;;
@@ -92,5 +95,5 @@ case "$command" in
  status) compose ps;;
  logs) compose logs --tail=100;;
  fingerprint) compose exec -T ssh ssh-keygen -lf /etc/ssh/host_keys/ssh_host_ed25519_key.pub;;
- *) echo 'Usage: ./manage.sh start|stop|restart|status|logs|fingerprint|repair'; exit 1;;
+ *) echo 'Usage: ./manage.sh start|stop|restart|status|logs|fingerprint|repair|upgrade [version]'; exit 1;;
 esac
