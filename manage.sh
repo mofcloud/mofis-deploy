@@ -56,7 +56,9 @@ preflight() {
   fi
   printf '\n  [3/4] Verifying PostgreSQL access (connection timeout: 8 seconds)\n' >&2
   diagnostic=$(mktemp)
-  if compose run --rm --no-deps --pull never --entrypoint sh pgbouncer -c '
+  # prepare_images already ensures the image is local. Older Compose releases
+  # support our deployment but do not accept --pull on the run subcommand.
+  if compose run --rm --no-deps --entrypoint sh pgbouncer -c '
     export PGCONNECT_TIMEOUT=8
     export PGPASSWORD="$(cat /run/secrets/db_password)"
     export PGSSLMODE="${DB_TLS_MODE:-disable}"
@@ -67,7 +69,10 @@ preflight() {
     printf '  PostgreSQL connection verified.\n' >&2
     return 0
   fi
-  if grep -qi 'password authentication failed' "$diagnostic"; then
+  if grep -Eqi 'unknown flag|unknown shorthand flag|unknown command' "$diagnostic"; then
+    printf '\n  Docker Compose could not run the connection check. This is a command compatibility error, not a PostgreSQL authentication result.\n' >&2
+    tail -n 15 "$diagnostic" >&2
+  elif grep -qi 'password authentication failed' "$diagnostic"; then
     printf '\n  Database password does not match the saved configuration.\n' >&2
     if [ "$mode" = full ]; then
       printf '  Existing data is preserved. Import the original password with:\n\n    ./manage.sh repair\n\n' >&2

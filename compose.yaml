@@ -23,7 +23,7 @@ services:
       postgres:
         condition: service_healthy
         required: false
-    image: ghcr.io/mofcloud/pgbouncer:${MOFIS_DEPLOY_VERSION:-0.1.7}
+    image: ghcr.io/mofcloud/pgbouncer:${MOFIS_DEPLOY_VERSION:-0.1.8}
     restart: unless-stopped
     environment:
       DB_HOST: ${DB_HOST:-postgres}
@@ -42,7 +42,7 @@ services:
       timeout: 5s
       retries: 12
   ssh:
-    image: ghcr.io/mofcloud/ssh-tunnel:${MOFIS_DEPLOY_VERSION:-0.1.7}
+    image: ghcr.io/mofcloud/ssh-tunnel:${MOFIS_DEPLOY_VERSION:-0.1.8}
     restart: unless-stopped
     environment:
       SSH_AUTH_MODE: ${SSH_AUTH_MODE:-key}

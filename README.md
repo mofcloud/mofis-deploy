@@ -80,7 +80,7 @@ Python 3.8+ is required. From your existing deployment directory:
 ```sh
 ./manage.sh upgrade
 # Or choose a published version:
-./manage.sh upgrade 0.1.7
+./manage.sh upgrade 0.1.8
 ```
 
 The command downloads the official GitHub release, verifies SHA256 and archive contents, backs up deployment files in `.upgrade-backups/`, and upgrades the current directory. It keeps `.env` settings, `config/`, `connection.txt`, project/volume identities and SSH host keys. Only the deployment image version setting changes. Failed service checks restore previous deployment files and attempt to restart the previous services. Check the reported result; rollback can still fail if Docker or the network is unavailable. Database contents are not backed up by this operation; PostgreSQL major-version changes are rejected.
@@ -96,7 +96,7 @@ Continue using the current deployment directory afterward; the extra extracted b
 If the server cannot access GitHub, download the ZIP and `SHA256SUMS` on another computer, transfer both to the server, then run:
 
 ```sh
-./manage.sh upgrade --archive /path/to/mofis-deploy-0.1.7.zip --checksum /path/to/SHA256SUMS
+./manage.sh upgrade --archive /path/to/mofis-deploy-0.1.8.zip --checksum /path/to/SHA256SUMS
 ```
 
 For the first upgrade from an older version, pass the same offline arguments to the new bundle's `scripts/upgrade.py` command above. Required Docker images must also be available locally or downloadable from the registry. Keep backups until the upgrade has been verified. Avoid running other deployment commands during an upgrade; an interrupted process may leave `.upgrade-lock`, which should only be removed after confirming no upgrade is still running.
