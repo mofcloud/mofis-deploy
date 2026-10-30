@@ -5,6 +5,8 @@ import io
 import pathlib
 import tempfile
 import unittest
+from unittest.mock import patch
+import urllib.error
 import zipfile
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -23,6 +25,42 @@ def bundle(extra=None):
     return data, hashlib.sha256(data).hexdigest()+'  mofis-deploy-0.2.0.zip\n'
 
 class UpgradeTests(unittest.TestCase):
+    def test_cloudflare_download(self):
+        calls = []
+        def fetch(url, timeout=60):
+            calls.append(url)
+            if url.endswith('latest.json'): return b'{"version":"0.2.0"}'
+            return b'zip' if url.endswith('.zip') else b'sums'
+        with patch.object(module, 'fetch', side_effect=fetch):
+            self.assertEqual(module.download_release(), (b'zip', 'sums', '0.2.0'))
+        self.assertEqual(len(calls), 3)
+        self.assertTrue(all(url.startswith(module.MIRROR) for url in calls))
+
+    def test_fallback_keeps_discovered_version_and_checksum_source(self):
+        calls = []
+        def fetch(url, timeout=60):
+            calls.append(url)
+            if url.endswith('latest.json'): return b'{"version":"0.2.0"}'
+            if url.startswith(module.MIRROR):
+                if url.endswith('.zip'): return b'incomplete-mirror'
+                raise urllib.error.URLError('offline')
+            return b'github-zip' if url.endswith('.zip') else b'github-sums'
+        with patch.object(module, 'fetch', side_effect=fetch):
+            self.assertEqual(module.download_release(), (b'github-zip', 'github-sums', '0.2.0'))
+        self.assertNotIn('api.github.com', ' '.join(calls))
+        self.assertTrue(all('/v0.2.0/' in url for url in calls if 'github.com' in url))
+
+    def test_explicit_source_and_invalid_metadata(self):
+        with patch.object(module, 'fetch', side_effect=urllib.error.URLError('offline')) as fetch:
+            with self.assertRaises(urllib.error.URLError): module.download_release('0.2.0', 'cloudflare')
+            self.assertEqual(fetch.call_count, 1)
+        with patch.object(module, 'fetch', return_value=b'{"version":"../../bad"}') as fetch:
+            with self.assertRaises(ValueError): module.download_release()
+            self.assertEqual(fetch.call_count, 1)
+        with patch.object(module, 'fetch', return_value=b'file') as fetch:
+            module.download_release('0.2.0', 'github')
+            self.assertTrue(all('github.com' in c.args[0] for c in fetch.call_args_list))
+
     def test_archive_checks(self):
         data, sums = bundle()
         self.assertEqual(module.unpack(data,sums)[0], '0.2.0')

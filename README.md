@@ -69,7 +69,7 @@ npm test
 ./scripts/package.sh
 ```
 
-Set `VERSION` and matching default image tags in `compose.yaml`, commit, and push `vX.Y.Z`. Actions tests, publishes multi-architecture images to `ghcr.io/mofcloud/pgbouncer` and `ghcr.io/mofcloud/ssh-tunnel`, then creates a ZIP release with checksums. Branch pushes only validate. On first publication, set both GHCR packages to Public and verify anonymous pulls before publishing website download links.
+Set `VERSION` and matching default image tags in `compose.yaml`, commit, and push `vX.Y.Z`. Actions tests, publishes multi-architecture images to `ghcr.io/mofcloud/pgbouncer` and `ghcr.io/mofcloud/ssh-tunnel`, then creates a ZIP release with checksums and mirrors it to Cloudflare R2. Branch pushes only validate. On first publication, set both GHCR packages to Public and verify anonymous pulls before publishing website download links.
 
 Tests run against disposable local containers and clean up their volumes. Release archives contain an explicit allowlist of files, excluding all local credentials.
 
@@ -80,10 +80,10 @@ Python 3.8+ is required. From your existing deployment directory:
 ```sh
 ./manage.sh upgrade
 # Or choose a published version:
-./manage.sh upgrade 0.1.8
+./manage.sh upgrade 0.1.9
 ```
 
-The command downloads the official GitHub release, verifies SHA256 and archive contents, backs up deployment files in `.upgrade-backups/`, and upgrades the current directory. It keeps `.env` settings, `config/`, `connection.txt`, project/volume identities and SSH host keys. Only the deployment image version setting changes. Failed service checks restore previous deployment files and attempt to restart the previous services. Check the reported result; rollback can still fail if Docker or the network is unavailable. Database contents are not backed up by this operation; PostgreSQL major-version changes are rejected.
+The command downloads from `https://data.mofcloud.com/mofis-deploy` first and falls back to the official GitHub release if that source is unavailable, verifies SHA256 and archive contents, backs up deployment files in `.upgrade-backups/`, and upgrades the current directory. It keeps `.env` settings, `config/`, `connection.txt`, project/volume identities and SSH host keys. Only the deployment image version setting changes. Failed service checks restore previous deployment files and attempt to restart the previous services. Check the reported result; rollback can still fail if Docker or the network is unavailable. Database contents are not backed up by this operation; PostgreSQL major-version changes are rejected.
 
 For versions before 0.1.6, download and extract the new bundle once, then use its upgrader against the **old, configured directory**:
 
@@ -93,10 +93,20 @@ python3 /path/to/new-bundle/scripts/upgrade.py --directory /path/to/current-depl
 
 Continue using the current deployment directory afterward; the extra extracted bundle is no longer needed. Do not rerun `configure.sh` for upgrades.
 
-If the server cannot access GitHub, download the ZIP and `SHA256SUMS` on another computer, transfer both to the server, then run:
+For deployments through 0.1.8, the installed upgrader still uses GitHub. Bootstrap the CF-enabled version once from the **existing configured directory**:
 
 ```sh
-./manage.sh upgrade --archive /path/to/mofis-deploy-0.1.8.zip --checksum /path/to/SHA256SUMS
+curl -fLO https://data.mofcloud.com/mofis-deploy/0.1.9/mofis-deploy-0.1.9.zip
+curl -fLO https://data.mofcloud.com/mofis-deploy/0.1.9/SHA256SUMS
+./manage.sh upgrade --archive ./mofis-deploy-0.1.9.zip --checksum ./SHA256SUMS
+```
+
+Afterward, `./manage.sh upgrade` uses Cloudflare automatically. Use `--source cloudflare` or `--source github` to select a source explicitly. A checksum or invalid-metadata error stops the upgrade; it does not silently switch sources.
+
+If the server cannot access either source, download the ZIP and `SHA256SUMS` on another computer, transfer both to the server, then run:
+
+```sh
+./manage.sh upgrade --archive /path/to/mofis-deploy-0.1.9.zip --checksum /path/to/SHA256SUMS
 ```
 
 For the first upgrade from an older version, pass the same offline arguments to the new bundle's `scripts/upgrade.py` command above. Required Docker images must also be available locally or downloadable from the registry. Keep backups until the upgrade has been verified. Avoid running other deployment commands during an upgrade; an interrupted process may leave `.upgrade-lock`, which should only be removed after confirming no upgrade is still running.
@@ -106,3 +116,9 @@ For the first upgrade from an older version, pass the same offline arguments to 
 Requires Docker Compose 2.20+ for optional service dependencies. `configure.sh` saves the mode in `.env`: managed PostgreSQL enables `COMPOSE_PROFILES=managed-db`; external PostgreSQL leaves it empty. Use `docker compose up -d`, `docker compose stop` or `docker compose down` without extra file arguments. `manage.sh start` also checks credentials and displays startup progress. Do not add `--volumes` / `-v` to `down` unless you intend to delete stored data.
 
 Old configurations are migrated automatically on upgrade/start without changing the project name, data volume, passwords or CA. The release includes a temporary compatibility file for older upgrade commands; setup/start removes it automatically. Only `compose.yaml` is used at runtime. Maintainer-only `compose.build.yaml` is not part of customer downloads.
+
+## Cloudflare release mirror
+
+Actions repository secrets: `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY` (object read/write for this bucket only). Repository variables: `R2_ACCOUNT_ID`, `R2_BUCKET=mofcloud-public`, `R2_PUBLIC_URL=https://data.mofcloud.com`. Uploads use the [official R2 S3-compatible endpoint](https://developers.cloudflare.com/r2/api/).
+
+The release workflow uploads only the versioned ZIP and SHA256SUMS under `mofis-deploy/<version>/`. It verifies both public downloads before publishing `mofis-deploy/latest.json`, with caching disabled for that pointer. Serialized mirror jobs cannot move the pointer back to an older version. Other bucket objects are left untouched. If mirroring fails after GitHub release creation, rerun the failed mirror job. Docker images still come from GHCR; the ZIP mirror does not mirror images.

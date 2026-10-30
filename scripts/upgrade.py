@@ -14,6 +14,7 @@ import subprocess
 import sys
 import tempfile
 import urllib.request
+import urllib.error
 import zipfile
 
 FILES = {
@@ -29,13 +30,43 @@ def version(value):
         raise ValueError('Expected a release version such as 0.1.6.')
     return value
 
-def fetch(url):
+MIRROR = 'https://data.mofcloud.com/mofis-deploy'
+
+def fetch(url, timeout=60):
     request = urllib.request.Request(url, headers={'User-Agent': 'mofis-deploy-upgrade'})
-    with urllib.request.urlopen(request, timeout=60) as response:
+    with urllib.request.urlopen(request, timeout=timeout) as response:
         data = response.read(20 * 1024 * 1024 + 1)
     if len(data) > 20 * 1024 * 1024:
         raise ValueError('Release download exceeds the size limit.')
     return data
+
+def download_release(requested=None, source='auto'):
+    sources = ['cloudflare', 'github'] if source == 'auto' else [source]
+    for provider in sources:
+        try:
+            release = requested
+            timeout = 15 if provider == 'cloudflare' else 60
+            print('Checking %s (request timeout: %s seconds)' % (provider, timeout), flush=True)
+            if provider == 'cloudflare':
+                if not release:
+                    release = version(json.loads(fetch(MIRROR + '/latest.json', timeout=timeout))['version'])
+                base = MIRROR + '/' + release + '/'
+            else:
+                if not release:
+                    metadata = json.loads(fetch('https://api.github.com/repos/mofcloud/mofis-deploy/releases/latest', timeout=timeout))
+                    release = version(metadata['tag_name'])
+                base = 'https://github.com/mofcloud/mofis-deploy/releases/download/v' + release + '/'
+            print('Downloading v%s from %s' % (release, provider), flush=True)
+            data = fetch(base + 'mofis-deploy-' + release + '.zip', timeout=timeout)
+            checksums = fetch(base + 'SHA256SUMS', timeout=timeout).decode()
+            return data, checksums, release
+        except (urllib.error.URLError, TimeoutError, OSError):
+            if provider == sources[-1]:
+                raise
+            print('Cloudflare download unavailable; trying GitHub.', flush=True)
+            # A discovered version remains fixed when falling back; never mix
+            # archives and checksums from different sources or change releases.
+            requested = release
 
 def unpack(data, checksums, requested=None):
     with zipfile.ZipFile(io.BytesIO(data)) as archive:
@@ -151,6 +182,7 @@ def main():
     parser.add_argument('--directory', required=True)
     parser.add_argument('--archive', type=Path, help='Offline release ZIP')
     parser.add_argument('--checksum', type=Path, help='Offline SHA256SUMS file')
+    parser.add_argument('--source', choices=['auto', 'cloudflare', 'github'], default='auto', help='Download source (default: Cloudflare, then GitHub)')
     args = parser.parse_args()
     root = Path(args.directory).resolve()
     lock = root/'.upgrade-lock'
@@ -168,13 +200,7 @@ def main():
         else:
             if args.checksum:
                 raise ValueError('--checksum requires --archive.')
-            if not requested:
-                metadata = json.loads(fetch('https://api.github.com/repos/mofcloud/mofis-deploy/releases/latest'))
-                requested = version(metadata['tag_name'])
-            base = 'https://github.com/mofcloud/mofis-deploy/releases/download/v' + requested + '/'
-            print('Downloading v%s (each request timeout: 60 seconds)' % requested, flush=True)
-            data = fetch(base + 'mofis-deploy-' + requested + '.zip')
-            checksums = fetch(base + 'SHA256SUMS').decode()
+            data, checksums, requested = download_release(requested, args.source)
         print('[2/4] Verifying checksum and release contents', flush=True)
         release, payload = unpack(data, checksums, requested)
         upgrade(root, release, payload)

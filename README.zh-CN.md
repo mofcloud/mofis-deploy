@@ -94,10 +94,10 @@ npm test
 ```sh
 ./manage.sh upgrade
 # 或指定版本：
-./manage.sh upgrade 0.1.8
+./manage.sh upgrade 0.1.9
 ```
 
-脚本从 GitHub 下载正式安装包，验证 SHA256 和文件清单，备份部署文件后在原目录更新。保留已有配置、密码、MOFIS 连接串、Docker 项目及数据卷名称和 SSH 指纹，只更新镜像版本配置。服务检查失败时恢复旧文件并尝试启动旧服务；若 Docker 或网络不可用，回退后的服务也可能启动失败，请查看结果提示。本操作不代替数据库备份，也不支持自动跨 PostgreSQL 大版本升级。
+脚本优先从 CF 下载正式安装包，无法下载时尝试 GitHub，验证 SHA256 和文件清单，备份部署文件后在原目录更新。保留已有配置、密码、MOFIS 连接串、Docker 项目及数据卷名称和 SSH 指纹，只更新镜像版本配置。服务检查失败时恢复旧文件并尝试启动旧服务；若 Docker 或网络不可用，回退后的服务也可能启动失败，请查看结果提示。本操作不代替数据库备份，也不支持自动跨 PostgreSQL 大版本升级。
 
 0.1.6 以前的版本没有升级命令。第一次先下载并解压新版，再用新版升级脚本指向**原来已经配置好的目录**：
 
@@ -107,10 +107,10 @@ python3 /新版目录/scripts/upgrade.py --directory /原部署目录
 
 完成后继续使用原部署目录，新解压的临时目录可以删除；以后直接执行 `./manage.sh upgrade`，不要重新运行 `configure.sh`。
 
-服务器无法访问 GitHub 时，可以在电脑下载 ZIP 和同一版本的 `SHA256SUMS`，传到服务器后离线更新：
+服务器无法访问任一下载来源时，可以在电脑下载 ZIP 和同一版本的 `SHA256SUMS`，传到服务器后离线更新：
 
 ```sh
-./manage.sh upgrade --archive /文件路径/mofis-deploy-0.1.8.zip --checksum /文件路径/SHA256SUMS
+./manage.sh upgrade --archive /文件路径/mofis-deploy-0.1.9.zip --checksum /文件路径/SHA256SUMS
 ```
 
 旧版第一次升级时，将同样的 `--archive` 和 `--checksum` 参数加到新版 `scripts/upgrade.py` 命令后即可。Docker 镜像仍需要本地已有或能够从镜像仓库下载。确认正常前保留 `.upgrade-backups/`；升级期间不要同时执行其他部署命令。异常中断可能留下 `.upgrade-lock`，确认没有升级进程运行后才可删除该锁目录。
@@ -120,3 +120,21 @@ python3 /新版目录/scripts/upgrade.py --directory /原部署目录
 需要 Docker Compose 2.20 或更新版本。`configure.sh` 自动将模式保存到 `.env`：自带 PG 开启 `COMPOSE_PROFILES=managed-db`；外接 PG 留空。日常直接执行 `docker compose up -d`、`docker compose stop` 或 `docker compose down`，不需要额外指定文件。使用 `manage.sh start` 还会检查连接并显示启动进度。除非明确要删除数据，否则不要给 `down` 加 `-v` / `--volumes`。
 
 旧配置在升级/启动时自动迁移，保留项目名、数据卷、密码和 CA。安装包临时携带一个供旧升级命令识别的兼容文件，配置/启动后自动移除；运行时只使用 `compose.yaml`。维护者测试用的 `compose.build.yaml` 不进入用户下载包。
+
+## Cloudflare 下载与自动镜像
+
+从 0.1.9 起，升级优先访问 `https://data.mofcloud.com/mofis-deploy`，无法下载时再尝试 GitHub。可以用 `./manage.sh upgrade --source cloudflare` 或 `--source github` 指定来源。下载后校验 SHA256 和压缩包内容；校验失败或版本信息非法时停止，不会悄悄换来源。
+
+**0.1.8 及以前版本**的升级器仍使用 GitHub。在原来已配置的部署目录中执行一次：
+
+```sh
+curl -fLO https://data.mofcloud.com/mofis-deploy/0.1.9/mofis-deploy-0.1.9.zip
+curl -fLO https://data.mofcloud.com/mofis-deploy/0.1.9/SHA256SUMS
+./manage.sh upgrade --archive ./mofis-deploy-0.1.9.zip --checksum ./SHA256SUMS
+```
+
+以后只需 `./manage.sh upgrade`，自动走 CF。不要重新配置数据库。
+
+维护者在 GitHub Actions 配置 Secrets：`R2_ACCESS_KEY_ID`、`R2_SECRET_ACCESS_KEY`（仅目标 Bucket 的对象读写权限）；Variables：`R2_ACCOUNT_ID`、`R2_BUCKET=mofcloud-public`、`R2_PUBLIC_URL=https://data.mofcloud.com`。
+
+发布流程仅上传 `mofis-deploy/<版本>/` 下的 ZIP 和 SHA256SUMS；公开下载验证通过后才更新禁用缓存的 `mofis-deploy/latest.json`。镜像任务串行执行，并防止旧版本覆盖最新版本指针。不会修改 Bucket 里的其他文件。如果 GitHub 发布成功但镜像失败，重新运行失败的镜像任务即可。Docker 镜像仍从 GHCR 下载，需要单独保证服务器可访问。
