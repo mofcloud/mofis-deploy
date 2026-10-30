@@ -13,7 +13,10 @@ files=['VERSION','README.md','README.zh-CN.md','compose.yaml','compose.postgres.
 archive=root/'dist'/f'{name}.zip'
 with zipfile.ZipFile(archive,'w',zipfile.ZIP_DEFLATED) as out:
  for file in files:
-  out.write(file,f'{name}/{file}')
+  if file == 'compose.postgres.yaml' and not (root/file).exists():
+   out.writestr(f'{name}/{file}', '# MOFIS_LEGACY_UPGRADE_BRIDGE\nservices:\n  postgres:\n    image: postgres:16-alpine\n')
+  else:
+   out.write(file,f'{name}/{file}')
 (root/'dist'/'SHA256SUMS').write_text(f'{hashlib.sha256(archive.read_bytes()).hexdigest()}  {archive.name}\n')
 print(archive)
 PY

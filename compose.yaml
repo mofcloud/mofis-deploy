@@ -1,7 +1,29 @@
 name: ${COMPOSE_PROJECT_NAME:-mofis-shared-db}
 services:
+  postgres:
+    profiles: [managed-db]
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+      POSTGRES_INITDB_ARGS: --auth-host=scram-sha-256
+    secrets: [postgres_password, db_password]
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./postgres/10-create-mof.sh:/docker-entrypoint-initdb.d/10-create-mof.sh:ro
+    networks: [database]
+    healthcheck:
+      test: [CMD-SHELL, 'pg_isready -U postgres -d postgres']
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 10s
   pgbouncer:
-    image: ghcr.io/mofcloud/pgbouncer:${MOFIS_DEPLOY_VERSION:-0.1.6}
+    depends_on:
+      postgres:
+        condition: service_healthy
+        required: false
+    image: ghcr.io/mofcloud/pgbouncer:${MOFIS_DEPLOY_VERSION:-0.1.7}
     restart: unless-stopped
     environment:
       DB_HOST: ${DB_HOST:-postgres}
@@ -20,7 +42,7 @@ services:
       timeout: 5s
       retries: 12
   ssh:
-    image: ghcr.io/mofcloud/ssh-tunnel:${MOFIS_DEPLOY_VERSION:-0.1.6}
+    image: ghcr.io/mofcloud/ssh-tunnel:${MOFIS_DEPLOY_VERSION:-0.1.7}
     restart: unless-stopped
     environment:
       SSH_AUTH_MODE: ${SSH_AUTH_MODE:-key}
@@ -40,6 +62,8 @@ services:
       timeout: 3s
       retries: 10
 secrets:
+  postgres_password:
+    file: ./config/postgres-password
   client_password:
     file: ./config/client-password
   db_password:
@@ -47,6 +71,8 @@ secrets:
   ssh_password:
     file: ./config/ssh-password
 volumes:
+  pgdata:
+    name: ${PG_DATA_VOLUME:-mofis-shared-db_pgdata}
   ssh_host_keys:
 networks:
   database:

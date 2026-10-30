@@ -36,6 +36,8 @@ with tempfile.TemporaryDirectory(prefix='mofis-config-test-') as folder:
         assert process.wait(timeout=10) == 0
         config = (target / '.env').read_text()
         assert 'DB_TLS_MODE=verify-full' in config and 'DEPLOY_MODE=external' in config
+        assert 'COMPOSE_PROFILES=\n' in config
+        assert (target/'config/db-ca.crt').read_bytes() == (target/'ca.crt').read_bytes()
         assert (target / 'config/db-password').read_text() == 'fixture!$\'"\\password'
         assert (target / 'config').stat().st_mode & 0o777 == 0o700
         assert (target / 'connection.txt').stat().st_mode & 0o777 == 0o600

@@ -12,7 +12,7 @@ const project = `mofis-deploy-test-${process.pid}`;
 let port;
 const clients = new Set();
 const run = (cmd,args,opts={}) => exec(cmd,args,{cwd:temp,stdio:'pipe',timeout:240000,...opts});
-const compose = (...args) => run('docker',['compose','-p',project,'-f','compose.yaml','-f','compose.postgres.yaml','-f','compose.build.yaml',...args]);
+const compose = (...args) => run('docker',['compose','-p',project,'-f','compose.yaml','-f','compose.build.yaml',...args]);
 async function freePort(){ const s=net.createServer(); await new Promise(r=>s.listen(0,'127.0.0.1',r)); const p=s.address().port; await new Promise(r=>s.close(r)); return p; }
 function connect(auth){return new Promise((resolve,reject)=>{const s=new SSH();clients.add(s);s.once('close',()=>clients.delete(s));s.once('ready',()=>resolve(s));s.once('error',reject);s.connect({host:'127.0.0.1',port,username:'tunnel',readyTimeout:8000,...auth});});}
 function channel(s,host='pgbouncer',port=6432){return new Promise((resolve,reject)=>s.forwardOut('127.0.0.1',0,host,port,(e,ch)=>e?reject(e):resolve(ch)));}
@@ -32,8 +32,9 @@ async function query(s,sql){const stream=await channel(s);stream.setNoDelay=()=>
   fs.appendFileSync(path.join(temp,'.env'),`\nSSH_BIND_ADDRESS=127.0.0.1\nSSH_PORT=${port}\n`);
   fs.appendFileSync(path.join(temp,'.env'),`\nPG_DATA_VOLUME=${project}_pgdata\nCOMPOSE_PROJECT_NAME=${project}\n`);
   const config=JSON.parse(compose('config','--format','json').toString());
+  assert(!fs.existsSync(path.join(temp,'compose.postgres.yaml')));
   assert(!config.services.postgres.ports);assert(!config.services.pgbouncer.ports);
-  const external=JSON.parse(run('docker',['compose','-p',project,'-f','compose.yaml','config','--format','json']).toString());assert(!external.services.postgres);
+  const external=JSON.parse(run('docker',['compose','-p',project,'-f','compose.yaml','config','--format','json'],{env:{...process.env,COMPOSE_PROFILES:''}}).toString());assert(!external.services.postgres);
   console.log('Configuration validation passed.');
   console.log('Building local test images and starting PostgreSQL + pooler + SSH...');
   compose('up','-d','--build','--wait','--wait-timeout','180');
@@ -75,12 +76,20 @@ async function query(s,sql){const stream=await channel(s);stream.setNoDelay=()=>
   await assert.rejects(channel(ssh,'postgres',5432));
   await new Promise((resolve,reject)=>ssh.exec('echo forbidden',(e,ch)=>{if(e)resolve();else{ch.close();reject(Error('Shell access unexpectedly allowed'));}}));
   ssh.end();
+  // Plain Compose commands must include the managed PostgreSQL without -f flags.
+  run('docker',['compose','down']);
+  const remaining=run('docker',['ps','-aq','--filter',`label=com.docker.compose.project=${project}`]).toString().trim();
+  assert.equal(remaining,'');
+  run('sh',['manage.sh','start']);
+  assert.equal(compose('exec','-T','postgres','psql','-U','postgres','-d','mof','-Atqc','SELECT id FROM mof.persistence').toString().trim(),'7');
+  assert.equal(compose('exec','-T','ssh','ssh-keygen','-lf','/etc/ssh/host_keys/ssh_host_ed25519_key.pub').toString(),fingerprintBefore);
+  console.log('Plain docker compose down removed all managed services; restart retained data and SSH identity.');
   // Reuse the same persisted DB as an existing backend, with a different owner/password.
   // This exercises libpq quoting of punctuation in real backend credentials.
   const backendPassword = `test\\value$"qu'ote`;
   compose('exec','-T','postgres','psql','-U','postgres','-c',`CREATE USER external_owner PASSWORD '${backendPassword.replaceAll("'","''")}'; GRANT CONNECT ON DATABASE mof TO external_owner;`);
   fs.writeFileSync(path.join(temp,'config/db-password'),backendPassword);
-  fs.appendFileSync(path.join(temp,'.env'),'\nDB_USER=external_owner\n');
+  fs.appendFileSync(path.join(temp,'.env'),'\nDEPLOY_MODE=external\nCOMPOSE_PROFILES=\nDB_USER=external_owner\n');
   // Drop the PG override: the existing postgres container is deliberately left running.
   run('docker',['compose','-p',project,'-f','compose.yaml','-f','compose.build.yaml','up','-d','--wait','--wait-timeout','90']);
   ssh=await connect({privateKey:fs.readFileSync(path.join(temp,'key'))});
@@ -115,5 +124,5 @@ async function query(s,sql){const stream=await channel(s);stream.setNoDelay=()=>
   assert.equal(compose('exec','-T','postgres','psql','-U','postgres','-d','mof','-Atqc','SELECT id FROM mof.persistence').toString().trim(),'7');
   console.log('PASS: full/existing DB, key/password auth, wrong credentials, forwarding restrictions, SQL transactions and restart persistence.');
  } catch(e){console.error(e.message); process.exitCode=1;}
- finally {for(const s of clients)s.destroy();try{compose('down','--volumes','--remove-orphans');}catch{}fs.rmSync(temp,{recursive:true,force:true});}
+ finally {for(const s of clients)s.destroy();try{fs.appendFileSync(path.join(temp,'.env'),'\nCOMPOSE_PROFILES=managed-db\n');compose('down','--volumes','--remove-orphans');}catch{}fs.rmSync(temp,{recursive:true,force:true});}
 })();

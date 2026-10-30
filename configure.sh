@@ -126,6 +126,7 @@ chmod 644 config/db-password config/postgres-password
 {
  printf 'MOFIS_DEPLOY_VERSION=%s\n' "$(cat VERSION)"
  printf 'DEPLOY_MODE=%s\nSSH_AUTH_MODE=%s\n' "$mode" "$auth"
+ if [ "$mode" = full ]; then printf 'COMPOSE_PROFILES=managed-db\n'; else printf 'COMPOSE_PROFILES=\n'; fi
  printf 'COMPOSE_PROJECT_NAME=%s\nPG_DATA_VOLUME=%s\n' "$project" "$pg_volume"
  printf 'SSH_BIND_ADDRESS=0.0.0.0\nSSH_PORT=%s\n' "$ssh_port"
  printf 'DB_HOST=%s\nDB_PORT=%s\nDB_NAME=%s\nDB_USER=%s\nDB_TLS_MODE=%s\n' "$host" "$port" "$db" "$user" "$tls"
@@ -137,6 +138,8 @@ chmod 644 config/db-password config/postgres-password
  if [ "$auth" = password ]; then printf 'SSH password: %s\n' "$(cat config/ssh-password)"; else printf 'Select your matching private key or SSH Agent in MOFIS.\n'; fi
  printf 'Verify SSH fingerprint with: ./manage.sh fingerprint\n'
 } > connection.txt
+# The bridge exists only so older installed upgraders accept this release.
+if [ -f compose.postgres.yaml ] && grep -q '^# MOFIS_LEGACY_UPGRADE_BRIDGE$' compose.postgres.yaml; then rm compose.postgres.yaml; fi
 section 'Configuration ready'
 case "$mode" in full) deployment='PostgreSQL + PgBouncer + SSH';; external) deployment='PgBouncer + SSH (existing database)';; esac
 printf '  Deployment      %s\n  Authentication  %s\n  SSH endpoint    %s:%s\n' "$deployment" "$auth" "$server" "$ssh_port" >&2

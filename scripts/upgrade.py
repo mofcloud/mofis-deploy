@@ -86,14 +86,22 @@ def upgrade(root, release, payload):
     if (root/'config/reset-db-password').exists():
         raise ValueError('Finish the pending password recovery with ./manage.sh start before upgrading.')
     pg_pattern = rb'image:\s*postgres:(\d+)'
-    old_pg = re.search(pg_pattern, (root/'compose.postgres.yaml').read_bytes())
-    new_pg = re.search(pg_pattern, payload['compose.postgres.yaml'])
+    old_compose = (root/'compose.yaml').read_bytes()
+    if (root/'compose.postgres.yaml').is_file():
+        old_compose += (root/'compose.postgres.yaml').read_bytes()
+    old_pg = re.search(pg_pattern, old_compose)
+    new_pg = re.search(pg_pattern, payload['compose.yaml'])
     if (old_pg.group(1) if old_pg else None) != (new_pg.group(1) if new_pg else None):
         raise ValueError('PostgreSQL major-version changes require a separate database migration.')
     env = (root/'.env').read_bytes()
     if not (root/'config').is_dir():
         raise ValueError('Existing configuration is missing; run configure.sh for a new installation.')
     text = env.decode()
+    if not re.search(r'^COMPOSE_PROFILES=', text, flags=re.M):
+        mode = re.search(r'^DEPLOY_MODE=(full|external)$', text, flags=re.M)
+        if not mode:
+            raise ValueError('Missing or invalid deployment mode.')
+        text = text.rstrip('\n') + '\nCOMPOSE_PROFILES=' + ('managed-db' if mode.group(1) == 'full' else '') + '\n'
     # Keep explicit project/volume identities and every other setting unchanged.
     text = re.sub(r'^MOFIS_DEPLOY_VERSION=.*\n?', '', text, flags=re.M)
     text = text.rstrip('\n') + '\nMOFIS_DEPLOY_VERSION=' + release + '\n'

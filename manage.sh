@@ -5,11 +5,17 @@ cd "$(dirname "$0")"
 mode=$(sed -n 's/^DEPLOY_MODE=//p' .env)
 command=${1:-help}
 [ "$#" -eq 0 ] || shift
-compose() {
- if [ "$mode" = full ]; then docker compose -f compose.yaml -f compose.postgres.yaml "$@"
- elif [ "$mode" = external ]; then docker compose -f compose.yaml "$@"
- else echo 'Invalid deployment mode' >&2; return 1; fi
-}
+# Older installed upgraders only update the image version. Migrate the saved
+# profile here as well, so plain docker compose commands work after upgrade.
+if ! grep -q '^COMPOSE_PROFILES=' .env; then
+  case "$mode" in
+    full) printf '\nCOMPOSE_PROFILES=managed-db\n' >> .env;;
+    external) printf '\nCOMPOSE_PROFILES=\n' >> .env;;
+    *) echo 'Invalid deployment mode' >&2; exit 1;;
+  esac
+fi
+if [ -f compose.postgres.yaml ] && grep -q '^# MOFIS_LEGACY_UPGRADE_BRIDGE$' compose.postgres.yaml; then rm compose.postgres.yaml; fi
+compose() { docker compose -f compose.yaml "$@"; }
 prepare_images() {
   printf '\n  [1/4] Checking required Docker images\n' >&2
   required_images=$(compose config --images) || return 1

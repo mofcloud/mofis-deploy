@@ -94,7 +94,7 @@ npm test
 ```sh
 ./manage.sh upgrade
 # 或指定版本：
-./manage.sh upgrade 0.1.6
+./manage.sh upgrade 0.1.7
 ```
 
 脚本从 GitHub 下载正式安装包，验证 SHA256 和文件清单，备份部署文件后在原目录更新。保留已有配置、密码、MOFIS 连接串、Docker 项目及数据卷名称和 SSH 指纹，只更新镜像版本配置。服务检查失败时恢复旧文件并尝试启动旧服务；若 Docker 或网络不可用，回退后的服务也可能启动失败，请查看结果提示。本操作不代替数据库备份，也不支持自动跨 PostgreSQL 大版本升级。
@@ -110,7 +110,13 @@ python3 /新版目录/scripts/upgrade.py --directory /原部署目录
 服务器无法访问 GitHub 时，可以在电脑下载 ZIP 和同一版本的 `SHA256SUMS`，传到服务器后离线更新：
 
 ```sh
-./manage.sh upgrade --archive /文件路径/mofis-deploy-0.1.6.zip --checksum /文件路径/SHA256SUMS
+./manage.sh upgrade --archive /文件路径/mofis-deploy-0.1.7.zip --checksum /文件路径/SHA256SUMS
 ```
 
 旧版第一次升级时，将同样的 `--archive` 和 `--checksum` 参数加到新版 `scripts/upgrade.py` 命令后即可。Docker 镜像仍需要本地已有或能够从镜像仓库下载。确认正常前保留 `.upgrade-backups/`；升级期间不要同时执行其他部署命令。异常中断可能留下 `.upgrade-lock`，确认没有升级进程运行后才可删除该锁目录。
+
+## 一个 Compose 文件，两种数据库模式
+
+需要 Docker Compose 2.20 或更新版本。`configure.sh` 自动将模式保存到 `.env`：自带 PG 开启 `COMPOSE_PROFILES=managed-db`；外接 PG 留空。日常直接执行 `docker compose up -d`、`docker compose stop` 或 `docker compose down`，不需要额外指定文件。使用 `manage.sh start` 还会检查连接并显示启动进度。除非明确要删除数据，否则不要给 `down` 加 `-v` / `--volumes`。
+
+旧配置在升级/启动时自动迁移，保留项目名、数据卷、密码和 CA。安装包临时携带一个供旧升级命令识别的兼容文件，配置/启动后自动移除；运行时只使用 `compose.yaml`。维护者测试用的 `compose.build.yaml` 不进入用户下载包。

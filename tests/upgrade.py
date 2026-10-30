@@ -37,9 +37,10 @@ class UpgradeTests(unittest.TestCase):
             path=root/name;path.parent.mkdir(parents=True,exist_ok=True);path.write_text('old file')
         (root/'VERSION').write_text('0.1.5\n')
         (root/'manage.sh').write_text('#!/bin/sh\necho previous-services-ready\n')
-        (root/'.env').write_text('COMPOSE_PROJECT_NAME=original\nPG_DATA_VOLUME=original_pgdata\nSSH_PORT=2223\nMOFIS_DEPLOY_VERSION=0.1.5\n')
+        (root/'.env').write_text('DEPLOY_MODE=full\nCOMPOSE_PROJECT_NAME=original\nPG_DATA_VOLUME=original_pgdata\nSSH_PORT=2223\nMOFIS_DEPLOY_VERSION=0.1.5\n')
         (root/'config').mkdir()
         (root/'config/db-password').write_text('secret')
+        (root/'config/db-ca.crt').write_text('saved CA certificate')
         (root/'connection.txt').write_text('private connection')
 
     def test_success_and_rollback(self):
@@ -62,8 +63,10 @@ class UpgradeTests(unittest.TestCase):
                     self.assertIn('COMPOSE_PROJECT_NAME=original',text)
                     self.assertIn('PG_DATA_VOLUME=original_pgdata',text)
                     self.assertIn('SSH_PORT=2223',text)
+                    self.assertIn('COMPOSE_PROFILES=managed-db',text)
                 self.assertEqual((root/'config/db-password').read_text(),'secret')
                 self.assertEqual((root/'config/db-password').stat().st_ino,inode)
+                self.assertEqual((root/'config/db-ca.crt').read_text(),'saved CA certificate')
                 self.assertEqual((root/'connection.txt').read_text(),'private connection')
                 self.assertTrue(list((root/'.upgrade-backups').glob('*/.env')))
 
@@ -78,9 +81,9 @@ class UpgradeTests(unittest.TestCase):
     def test_reject_major_database_change(self):
         with tempfile.TemporaryDirectory() as tmp:
             root=pathlib.Path(tmp);self.fixture(root)
-            (root/'compose.postgres.yaml').write_text('image: postgres:16-alpine\n')
+            (root/'compose.yaml').write_text('image: postgres:16-alpine\n')
             with self.assertRaises(ValueError):
-                module.upgrade(root,'0.2.0',{'compose.postgres.yaml':b'image: postgres:17-alpine\n'})
+                module.upgrade(root,'0.2.0',{'compose.yaml':b'image: postgres:17-alpine\n'})
             self.assertFalse((root/'.upgrade-backups').exists())
             self.assertEqual((root/'VERSION').read_text(),'0.1.5\n')
 

@@ -6,6 +6,7 @@ with tempfile.TemporaryDirectory(prefix='mofis-start-test-') as tmp:
     base = pathlib.Path(tmp)
     shutil.copy(root/'manage.sh', base/'manage.sh')
     (base/'.env').write_text('DEPLOY_MODE=full\n')
+    (base/'compose.postgres.yaml').write_text('# MOFIS_LEGACY_UPGRADE_BRIDGE\nservices: {}\n')
     binary = base/'bin'; binary.mkdir()
     docker = binary/'docker'
     docker.write_text('''#!/bin/sh
@@ -26,6 +27,8 @@ esac
         return result,calls.read_text()
     result,calls = start('no','yes')
     assert result.returncode != 0
+    assert 'COMPOSE_PROFILES=managed-db' in (base/'.env').read_text()
+    assert not (base/'compose.postgres.yaml').exists()
     assert 'Download progress visible' in result.stdout
     assert 'Image download failed' in result.stderr
     assert ' up ' not in calls and ' run ' not in calls
