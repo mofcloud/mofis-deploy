@@ -2,7 +2,7 @@
   "name": "mofis-deploy-tests",
   "private": true,
   "scripts": {
-    "test": "python3 tests/configure.py && python3 tests/reuse.py && node tests/integration.cjs"
+    "test": "python3 tests/configure.py && python3 tests/reuse.py && python3 tests/startup.py && node tests/integration.cjs"
   },
   "devDependencies": {
     "pg": "^8.23.1",

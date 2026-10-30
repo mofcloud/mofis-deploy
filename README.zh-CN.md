@@ -84,3 +84,5 @@ npm test
 测试使用独立临时 Docker 项目，不连接真实客户数据库，结束后清理测试卷。下载包使用文件白名单打包，不包含本机密钥或密码。
 
 参考：[PostgreSQL SSH 隧道](https://www.postgresql.org/docs/current/ssh-tunnels.html)、[PgBouncer 配置](https://www.pgbouncer.org/config.html)、[GitHub 镜像发布](https://docs.github.com/en/actions/tutorials/publish-packages/publish-docker-images)。
+
+启动时会显示镜像检查/下载进度、PG 就绪、连接验证和服务就绪四个阶段；本地已有镜像时直接复用，不重复访问镜像仓库。

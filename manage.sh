@@ -10,9 +10,25 @@ compose() {
  elif [ "$mode" = external ]; then docker compose -f compose.yaml "$@"
  else echo 'Invalid deployment mode' >&2; return 1; fi
 }
+prepare_images() {
+  printf '\n  [1/4] Checking required Docker images\n' >&2
+  required_images=$(compose config --images) || return 1
+  for image in $required_images; do
+    if docker image inspect "$image" >/dev/null 2>&1; then
+      printf '  Ready: %s\n' "$image" >&2
+    else
+      printf '  Downloading %s (progress below; network access required)\n' "$image" >&2
+      if ! docker pull "$image"; then
+        printf '\n  Image download failed: %s\n  Check server access to the image registry, then run ./manage.sh start again.\n' "$image" >&2
+        return 1
+      fi
+    fi
+  done
+}
 preflight() {
   # Test the real backend credentials before waiting for the pooler health check.
   if [ "$mode" = full ]; then
+    printf '\n  [2/4] Starting PostgreSQL (waiting up to 60 seconds for readiness)\n' >&2
     compose up -d --wait --wait-timeout 60 postgres || return 1
     if [ -f config/reset-db-password ]; then
       printf '  Recovering database access; stored data is preserved.\n' >&2
@@ -29,9 +45,12 @@ preflight() {
       rm -f config/reset-db-password
       printf '  Database password updated. Other clients using the old password must update their connection.\n' >&2
     fi
+  else
+    printf '\n  [2/4] Using the configured external PostgreSQL server\n' >&2
   fi
+  printf '\n  [3/4] Verifying PostgreSQL access (connection timeout: 8 seconds)\n' >&2
   diagnostic=$(mktemp)
-  if compose run --rm --no-deps --entrypoint sh pgbouncer -c '
+  if compose run --rm --no-deps --pull never --entrypoint sh pgbouncer -c '
     export PGCONNECT_TIMEOUT=8
     export PGPASSWORD="$(cat /run/secrets/db_password)"
     export PGSSLMODE="${DB_TLS_MODE:-disable}"
@@ -56,10 +75,18 @@ preflight() {
   rm -f "$diagnostic"
   return 1
 }
-start() { preflight && compose up -d --wait --wait-timeout 180; }
+start_services() {
+  printf '\n  [4/4] Starting PgBouncer and SSH (waiting up to 180 seconds for readiness)\n' >&2
+  if ! compose up -d --wait --wait-timeout 180; then
+    printf '\n  Services are not ready. View details with ./manage.sh status and ./manage.sh logs.\n' >&2
+    return 1
+  fi
+  printf '\n  Ready. View MOFIS connection details with: cat connection.txt\n' >&2
+}
+start() { prepare_images && preflight && start_services; }
 case "$command" in
  start) start;;
- repair) ./scripts/repair.sh && preflight && compose up -d --no-deps --force-recreate pgbouncer && start;;
+ repair) ./scripts/repair.sh && prepare_images && preflight && compose up -d --no-deps --force-recreate pgbouncer && start_services;;
  stop) compose stop;;
  restart) compose restart;;
  status) compose ps;;

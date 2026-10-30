@@ -53,6 +53,8 @@ Startup checks backend credentials before waiting for pooler health. To repair a
 
 Choose import (default) to keep the database password, or forgotten-password recovery to generate a new one. Both preserve data and MOFIS client credentials. Recovery is available only for our managed PostgreSQL, not external databases.
 
+Startup displays image checks/download progress, PostgreSQL readiness, connection verification and service readiness. Cached images are reused without contacting the registry.
+
 ## Persistence and upgrades
 
 Named Docker volumes retain PostgreSQL data and SSH host identity across restarts. Back up both the database and configuration before upgrades. PostgreSQL initialization credentials apply only when creating a new data volume; editing a secret does not rotate an existing database role's password.
